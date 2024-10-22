@@ -18,7 +18,7 @@ func Setup(app *fiber.App) {
 
 	app.Get("/products", controllers.GetProducts)
 	app.Get("/products/:id", controllers.GetProductByID)
-	app.Get("/products/search", controllers.SearchProducts)
+	app.Get("/products/search/:query", controllers.SearchProducts)
 
 	// Admin routes (protected by AdminMiddleware)
 	app.Post("/products", AdminMiddlewareAccess.AdminMiddleware, controllers.AddProduct)

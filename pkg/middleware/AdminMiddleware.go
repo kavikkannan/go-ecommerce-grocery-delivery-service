@@ -9,7 +9,6 @@ import (
 )
 
 const SecretKey = "secret"
-
 func AdminMiddleware(c *fiber.Ctx) error {
 	cookie := c.Cookies("jwt")
 

@@ -1,15 +1,18 @@
 package controllers
 
 import (
+
+
+	"github.com/dgrijalva/jwt-go"
 	"github.com/gofiber/fiber/v2"
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/config"
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/models"
 	"golang.org/x/crypto/bcrypt"
-	"github.com/dgrijalva/jwt-go"
+
 	/* "net/http" */
 	"strconv"
-	"time"
 	"strings"
+	"time"
 )
 
 const SecretKey = "secret"
@@ -145,10 +148,7 @@ func Logout(c *fiber.Ctx) error {
 
 /* for product page: */
 
-var products = []models.Product{
-	{ID: 1, Name: "Apple", Category: "Fruits", Price: 1.2, Stock: 50, Description: "Fresh apples"},
-	{ID: 2, Name: "Milk", Category: "Dairy", Price: 1.5, Stock: 30, Description: "1 liter fresh milk"},
-}
+var products []models.Product 
 
 
 
@@ -175,55 +175,73 @@ func GetProductByID(c *fiber.Ctx) error {
 
 // GET /products/search?query=apple - Search for products
 func SearchProducts(c *fiber.Ctx) error {
-	query := c.Query("query")
-	var results []models.Product
 
+	
+
+	query := c.Params("query")
+	var results []models.Product
+	
+	
 	for _, product := range products {
+		
 		if contains(product.Name, query) || contains(product.Category, query) {
 			results = append(results, product)
 		}
 	}
-
+	
 	return c.JSON(results)
 }
 
 func contains(str, substr string) bool {
-	return strings.Contains(str, substr)
+	return strings.Contains(strings.ToLower(str), strings.ToLower(substr)) // case insensitive search
 }
 
 // POST /products - Add new product (Admin only)
 func AddProduct(c *fiber.Ctx) error {
+	// Create a new instance of the product model
 	product := new(models.Product)
 
+	// Parse the request body into the product struct
 	if err := c.BodyParser(product); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	product.ID = uint(len(products) + 1)
-	products = append(products, *product)
+	// Save the product to the database using GORM
+	if err := config.DB.Create(&product).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to add product"})
+	}
+
+	// Return the newly created product as a JSON response
 	return c.JSON(product)
 }
 
+
+
 // PUT /products/:id - Update product (Admin only)
 func UpdateProduct(c *fiber.Ctx) error {
+	// Parse the product ID from the URL parameter
 	id, err := strconv.Atoi(c.Params("id"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
 	}
 
-	product := new(models.Product)
-	if err := c.BodyParser(product); err != nil {
+	// Retrieve the product from the database
+	var product models.Product
+	if err := config.DB.First(&product, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found"})
+	}
+
+	// Parse the request body into the product struct
+	if err := c.BodyParser(&product); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	for i, p := range products {
-		if p.ID == uint(id) {
-			products[i] = *product
-			products[i].ID = uint(id) // Retain original ID
-			return c.JSON(products[i])
-		}
+	// Update the product in the database
+	if err := config.DB.Save(&product).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update product"})
 	}
 
-	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found"})
+	return c.JSON(product)
 }
+
 
