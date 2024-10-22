@@ -3,7 +3,7 @@ package routes
 import (
 	
 	"github.com/gofiber/fiber/v2"
-	"github.com/kavikkannan/go-jwt/pkg/controllers"
+	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/controllers"
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/AdminMiddlewareAccess"
 )
 

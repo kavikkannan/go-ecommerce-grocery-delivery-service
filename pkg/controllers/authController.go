@@ -2,8 +2,8 @@ package controllers
 
 import (
 	"github.com/gofiber/fiber/v2"
-	"github.com/kavikkannan/go-jwt/pkg/config"
-	"github.com/kavikkannan/go-jwt/pkg/models"
+	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/config"
+	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/models"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/dgrijalva/jwt-go"
 	/* "net/http" */

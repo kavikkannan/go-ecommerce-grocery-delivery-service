@@ -1,4 +1,4 @@
-module github.com/kavikkannan/go-jwt
+module github.com/kavikkannan/go-ecommerce-grocery-delivery-service
 
 go 1.21.3
 

@@ -1,5 +1,15 @@
 package AdminMiddlewareAccess
 
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"github.com/dgrijalva/jwt-go"
+	/* "net/http" */
+
+)
+
+const SecretKey = "secret"
+
 func AdminMiddleware(c *fiber.Ctx) error {
 	cookie := c.Cookies("jwt")
 

@@ -3,7 +3,7 @@ package config
 import(
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
-	"github.com/kavikkannan/go-jwt/pkg/models"
+	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/models"
 )
 
 var(
