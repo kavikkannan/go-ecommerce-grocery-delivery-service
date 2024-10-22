@@ -9,14 +9,11 @@ import (
 	/* "net/http" */
 	"strconv"
 	"time"
+	"strings"
 )
 
 const SecretKey = "secret"
 
-var products = []Product{
-	{ID: 1, Name: "Apple", Category: "Fruits", Price: 1.2, Stock: 50, Description: "Fresh apples"},
-	{ID: 2, Name: "Milk", Category: "Dairy", Price: 1.5, Stock: 30, Description: "1 liter fresh milk"},
-}
 
 func Register(c *fiber.Ctx) error {
 	var data map[string]string
@@ -148,25 +145,12 @@ func Logout(c *fiber.Ctx) error {
 
 /* for product page: */
 
-var products = []Product{
+var products = []models.Product{
 	{ID: 1, Name: "Apple", Category: "Fruits", Price: 1.2, Stock: 50, Description: "Fresh apples"},
 	{ID: 2, Name: "Milk", Category: "Dairy", Price: 1.5, Stock: 30, Description: "1 liter fresh milk"},
 }
 
-// JWT Middleware for Admin Access
-func AdminMiddleware(c *fiber.Ctx) error {
-	cookie := c.Cookies("jwt")
 
-	token, err := jwt.ParseWithClaims(cookie, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(SecretKey), nil
-	})
-
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthenticated"})
-	}
-
-	return c.Next()
-}
 
 // GET /products - Fetch all products
 func GetProducts(c *fiber.Ctx) error {
@@ -192,7 +176,7 @@ func GetProductByID(c *fiber.Ctx) error {
 // GET /products/search?query=apple - Search for products
 func SearchProducts(c *fiber.Ctx) error {
 	query := c.Query("query")
-	var results []Product
+	var results []models.Product
 
 	for _, product := range products {
 		if contains(product.Name, query) || contains(product.Category, query) {
@@ -204,12 +188,12 @@ func SearchProducts(c *fiber.Ctx) error {
 }
 
 func contains(str, substr string) bool {
-	return fiber.Ctx{}.Locals("compare")(str, substr) != ""
+	return strings.Contains(str, substr)
 }
 
 // POST /products - Add new product (Admin only)
 func AddProduct(c *fiber.Ctx) error {
-	product := new(Product)
+	product := new(models.Product)
 
 	if err := c.BodyParser(product); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
@@ -227,7 +211,7 @@ func UpdateProduct(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
 	}
 
-	product := new(Product)
+	product := new(models.Product)
 	if err := c.BodyParser(product); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
@@ -241,3 +225,5 @@ func UpdateProduct(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found"})
+}
+

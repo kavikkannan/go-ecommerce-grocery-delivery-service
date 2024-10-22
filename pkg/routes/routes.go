@@ -4,7 +4,7 @@ import (
 	
 	"github.com/gofiber/fiber/v2"
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/controllers"
-	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/AdminMiddlewareAccess"
+	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/middleware"
 )
 
 func Setup(app *fiber.App) {
@@ -16,12 +16,12 @@ func Setup(app *fiber.App) {
 
 	/* for products */
 
-	app.Get("/products", GetProducts)
-	app.Get("/products/:id", GetProductByID)
-	app.Get("/products/search", SearchProducts)
+	app.Get("/products", controllers.GetProducts)
+	app.Get("/products/:id", controllers.GetProductByID)
+	app.Get("/products/search", controllers.SearchProducts)
 
 	// Admin routes (protected by AdminMiddleware)
-	app.Post("/products", AdminMiddleware, AddProduct)
-	app.Put("/products/:id", AdminMiddleware, UpdateProduct)
+	app.Post("/products", AdminMiddlewareAccess.AdminMiddleware, controllers.AddProduct)
+	app.Put("/products/:id", AdminMiddlewareAccess.AdminMiddleware, controllers.UpdateProduct)
 
 }

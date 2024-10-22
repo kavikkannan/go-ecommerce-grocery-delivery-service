@@ -9,7 +9,7 @@ import (
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/routes"
     "github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/config"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg"
+	
 )
 
 func main() {
