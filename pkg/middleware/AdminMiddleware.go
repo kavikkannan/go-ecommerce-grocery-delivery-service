@@ -1,3 +1,5 @@
+package AdminMiddlewareAccess
+
 func AdminMiddleware(c *fiber.Ctx) error {
 	cookie := c.Cookies("jwt")
 

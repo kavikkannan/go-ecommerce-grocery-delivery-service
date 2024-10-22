@@ -4,7 +4,7 @@ import (
 	
 	"github.com/gofiber/fiber/v2"
 	"github.com/kavikkannan/go-jwt/pkg/controllers"
-	"github.com/github.com/kavikkannan/go-jwt/pkg/"
+	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/AdminMiddlewareAccess"
 )
 
 func Setup(app *fiber.App) {
