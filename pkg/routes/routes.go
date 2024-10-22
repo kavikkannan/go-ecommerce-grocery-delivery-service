@@ -24,16 +24,24 @@ func Setup(app *fiber.App) {
 	app.Put("/products/:id", AdminMiddlewareAccess.AdminMiddleware, controllers.UpdateProduct)
 
 	// Cart Routes
-	app.Post("/cart/add", controllers.AddToCart)               // Add items to the user's shopping cart
-	app.Get("/cart", controllers.GetCart)                      // Fetch the current contents of the user's shopping cart
-	app.Delete("/cart/:productId", controllers.RemoveFromCart) // Remove a product from the cart
+	app.Post("/cart/add", controllers.AddToCart)               
+	app.Get("/cart", controllers.GetCart)                      
+	app.Delete("/cart/:productId", controllers.RemoveFromCart) 
 
 	// Order Routes
-	app.Post("/orders/checkout", controllers.Checkout)       // Place an order for the items in the cart
-	app.Get("/orders/:orderId", controllers.GetOrderDetails) // Fetch details of a specific order
-
+	app.Post("/orders/checkout", controllers.Checkout)       
+	app.Get("/orders/:orderId", controllers.GetOrderDetails) 
+	app.Post("/payment/initiate", controllers.InitiatePayment) 
+	
 	// Delivery Management Routes
-	app.Get("/orders/:orderId/track", controllers.TrackOrder)                                                     // Track the real-time delivery status of an order
-	app.Post("/orders/:orderId/assign", AdminMiddlewareAccess.AdminMiddleware, controllers.AssignDeliveryPartner) // Assign a delivery partner to an order
+	app.Get("/orders/:orderId/track", controllers.TrackOrder)                                                     
+	app.Post("/orders/:orderId/assign", AdminMiddlewareAccess.AdminMiddleware, controllers.AssignDeliveryPartner) 
 	app.Post("/delivery/update-status", controllers.UpdateDeliveryStatus)
+
+	// Admin routes
+	app.Get("/admin/dashboard", controllers.AdminDashboard)
+	app.Get("/admin/orders", controllers.GetAllOrders)
+	app.Put("/admin/orders/:orderId/cancel", controllers.CancelOrder)
+
 }
+

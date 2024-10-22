@@ -16,14 +16,13 @@ func Connect(){
 		panic(err)
 	}
 	DB=d
-	d.AutoMigrate(&models.Login{})
-	d.AutoMigrate(&models.Products{})
-	d.AutoMigrate(&models.CartItem{})
-	d.AutoMigrate(&models.DeliveryAssignment{})
-	d.AutoMigrate(&models.DeliveryStatusUpdate{})
-	d.AutoMigrate(&models.Order{})
-	d.AutoMigrate(&models.OrderItem{})
-	d.AutoMigrate(&models.PaymentRequest{})
+
+
+    // Auto-Migrate the schema
+    d.AutoMigrate(&models.Login{}, &models.Products{}, &models.CartItem{}, &models.Order{},
+                   &models.OrderItem{}, &models.DeliveryPartner{}, &models.PaymentRequest{},
+                   &models.DeliveryAssignment{}, &models.DeliveryStatusUpdate{})
+
 }
 
 func GetDB() *gorm.DB{
