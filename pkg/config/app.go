@@ -17,7 +17,13 @@ func Connect(){
 	}
 	DB=d
 	d.AutoMigrate(&models.Login{})
-	d.AutoMigrate(&models.Product{})
+	d.AutoMigrate(&models.Products{})
+	d.AutoMigrate(&models.CartItem{})
+	d.AutoMigrate(&models.DeliveryAssignment{})
+	d.AutoMigrate(&models.DeliveryStatusUpdate{})
+	d.AutoMigrate(&models.Order{})
+	d.AutoMigrate(&models.OrderItem{})
+	d.AutoMigrate(&models.PaymentRequest{})
 }
 
 func GetDB() *gorm.DB{
