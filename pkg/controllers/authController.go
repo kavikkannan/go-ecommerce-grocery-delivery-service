@@ -1,91 +1,75 @@
 package controllers
 
 import (
-
-
+	"database/sql"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gofiber/fiber/v2"
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/config"
-	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/models"
 	"golang.org/x/crypto/bcrypt"
-
-	/* "net/http" */
 	"strconv"
 	"strings"
 	"time"
-	
+	"fmt"
 )
 
 const SecretKey = "secret"
 
-
+// Register a new user
 func Register(c *fiber.Ctx) error {
 	var data map[string]string
-
 	if err := c.BodyParser(&data); err != nil {
 		return err
 	}
 
 	password, _ := bcrypt.GenerateFromPassword([]byte(data["password"]), 14)
+	isAdmin := data["is_admin"] == "true"
 
-	isAdmin := false
-	if data["is_admin"] == "true" {
-		isAdmin = true
+	_, err := config.DB.Exec("INSERT INTO Login (name, email, password, is_admin) VALUES (?, ?, ?, ?)", data["name"], data["email"], password, isAdmin)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to register user"})
 	}
 
-	user := models.Login{
-		Name:     data["name"],
-		Email:    data["email"],
-		Password: password,
-		IsAdmin:  isAdmin, 
-	}
-
-	config.DB.Create(&user)
-
-	return c.JSON(user)
+	return c.JSON(fiber.Map{"message": "User registered successfully"})
 }
 
-
+// Login an existing user
 func Login(c *fiber.Ctx) error {
 	var data map[string]string
-
 	if err := c.BodyParser(&data); err != nil {
-		return err
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid input data"})
 	}
 
-	var user models.Login
+	var id int
+	var hashedPassword []byte
+	var isAdmin bool
 
-	config.DB.Where("email = ?", data["email"]).First(&user)
-
-	if user.ID == 0 {
-		c.Status(fiber.StatusNotFound)
-		return c.JSON(fiber.Map{
-			"message": "user not found",
-		})
+	// Query to retrieve user information
+	err := config.DB.QueryRow("SELECT id, password, is_admin FROM Login WHERE email = ?", data["email"]).Scan(&id, &hashedPassword, &isAdmin)
+	if err == sql.ErrNoRows {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
+	} else if err != nil {
+		fmt.Println("Database error:", err) // Log error for debugging
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
 	}
 
-	if err := bcrypt.CompareHashAndPassword(user.Password, []byte(data["password"])); err != nil {
-		c.Status(fiber.StatusBadRequest)
-		return c.JSON(fiber.Map{
-			"message": "incorrect password",
-		})
+	// Check password
+	if err := bcrypt.CompareHashAndPassword(hashedPassword, []byte(data["password"])); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Incorrect password"})
 	}
 
+	// Create JWT claims
 	claims := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"Issuer":   strconv.Itoa(int(user.ID)),
-		"Expires":  time.Now().Add(time.Hour * 24).Unix(), 
-		"IsAdmin":  user.IsAdmin,                          
+		"Issuer":   strconv.Itoa(id),
+		"Expires":  time.Now().Add(time.Hour * 24).Unix(),
+		"IsAdmin":  isAdmin,
 	})
-
 	token, err := claims.SignedString([]byte(SecretKey))
-
 	if err != nil {
-		c.Status(fiber.StatusInternalServerError)
-		return c.JSON(fiber.Map{
-			"message": "could not login",
-		})
+		fmt.Println("JWT signing error:", err) // Log JWT error for debugging
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Could not login"})
 	}
 
+	// Set cookie
 	cookie := fiber.Cookie{
 		Name:     "jwt",
 		Value:    token,
@@ -93,42 +77,44 @@ func Login(c *fiber.Ctx) error {
 		HTTPOnly: true,
 		SameSite: "None",
 	}
-
 	if c.Protocol() == "https" {
 		cookie.Secure = true
 	}
-
 	c.Cookie(&cookie)
 
-	return c.JSON(fiber.Map{
-		"message": "success",
-	})
+	return c.JSON(fiber.Map{"message": "Login successful"})
 }
 
 
+// Get User details based on JWT
 func User(c *fiber.Ctx) error {
 	cookie := c.Cookies("jwt")
 
 	token, err := jwt.ParseWithClaims(cookie, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(SecretKey), nil
 	})
-
 	if err != nil {
-		c.Status(fiber.StatusUnauthorized)
-		return c.JSON(fiber.Map{
-			"message": "unauthenticated",
-		})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthenticated"})
 	}
-
 	claims := token.Claims.(*jwt.StandardClaims)
 
-	var user models.Login
+	var Login struct {
+		ID       int
+		Name     string
+		Email    string
+		IsAdmin  bool
+	}
+	err = config.DB.QueryRow("SELECT id, name, email, is_admin FROM Login WHERE id = ?", claims.Issuer).Scan(&Login.ID, &Login.Name, &Login.Email, &Login.IsAdmin)
+	if err == sql.ErrNoRows {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
+	}
 
-	config.DB.Where("id = ?", claims.Issuer).First(&user)
-
-	return c.JSON(user)
+	return c.JSON(Login)
 }
 
+// Logout by clearing JWT cookie
 func Logout(c *fiber.Ctx) error {
 	cookie := fiber.Cookie{
 		Name:     "jwt",
@@ -137,312 +123,219 @@ func Logout(c *fiber.Ctx) error {
 		HTTPOnly: true,
 		SameSite: "None",
 	}
-
 	c.Cookie(&cookie)
-
-	return c.JSON(fiber.Map{
-		"message": "success",
-		
-	})
+	return c.JSON(fiber.Map{"message": "Logged out successfully"})
 }
 
-
-/* for product page: */
-
-// GET /products - Fetch all products
+// Fetch all products
 func GetProducts(c *fiber.Ctx) error {
-	var products []models.Products
-
-	if err := config.DB.Find(&products).Error; err != nil {
+	rows, err := config.DB.Query("SELECT id, name, category, price, stock, description FROM Products")
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve products"})
+	}
+	defer rows.Close()
+
+	var products []map[string]interface{}
+	for rows.Next() {
+		var product struct {
+			ID       int
+			Name     string
+			Category string
+			Price    float64
+			Stock    int
+			Description string 
+		}
+		if err := rows.Scan(&product.ID, &product.Name, &product.Category, &product.Price, &product.Stock, &product.Description); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning product data"})
+		}
+		products = append(products, map[string]interface{}{
+			"id":       product.ID,
+			"name":     product.Name,
+			"category": product.Category,
+			"price":    product.Price,
+			"stock":	product.Stock,
+			"description": product.Description,
+		})
 	}
 
 	return c.JSON(products)
 }
 
-// GET /products/:id - Fetch product by ID
+// Fetch a product by ID
 func GetProductByID(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
+	id := c.Params("id")
+	var product struct {
+		ID       int
+		Name     string
+		Category string
+		Price    float64
+		Stock    int
+		Description string 
 	}
-
-	var product models.Products
-	if err := config.DB.First(&product, id).Error; err != nil {
+	err := config.DB.QueryRow("SELECT id, name, category, price, stock, description FROM Products WHERE id = ?", id).Scan(&product.ID, &product.Name, &product.Category, &product.Price, &product.Stock, &product.Description)
+	if err == sql.ErrNoRows {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found"})
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
 	}
 
 	return c.JSON(product)
 }
 
-// GET /products/search?query=apple - Search for products
+// Search for products
 func SearchProducts(c *fiber.Ctx) error {
 	query := c.Query("query")
-	var products []models.Products
-	var results []models.Products
-
-	if err := config.DB.Find(&products).Error; err != nil {
+	rows, err := config.DB.Query("SELECT id, name, category, price, stock, description FROM Products WHERE LOWER(name) LIKE ? OR LOWER(category) LIKE ?", "%"+strings.ToLower(query)+"%", "%"+strings.ToLower(query)+"%")
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve products"})
 	}
+	defer rows.Close()
 
-	for _, product := range products {
-		if contains(product.Name, query) || contains(product.Category, query) {
-			results = append(results, product)
+	var results []map[string]interface{}
+	for rows.Next() {
+		var product struct {
+			ID       int
+			Name     string
+			Category string
+			Price    float64
+			Stock    int
+			Description string 
 		}
+		if err := rows.Scan(&product.ID, &product.Name, &product.Category, &product.Price); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning product data"})
+		}
+		results = append(results, map[string]interface{}{
+			"id":       product.ID,
+			"name":     product.Name,
+			"category": product.Category,
+			"price":    product.Price,
+			"stock":	product.Stock,
+			"description": product.Description,
+		})
 	}
 
 	return c.JSON(results)
 }
 
 
-func contains(str, substr string) bool {
-	return strings.Contains(strings.ToLower(str), strings.ToLower(substr)) 
-}
+
 
 // POST /products - Add new product (Admin only)
 func AddProduct(c *fiber.Ctx) error {
-	product := new(models.Products)
-
-	if err := c.BodyParser(product); err != nil {
+	var data map[string]interface{}
+	if err := c.BodyParser(&data); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	if err := config.DB.Create(&product).Error; err != nil {
+	query := "INSERT INTO Products (name, category, price, stock, description) VALUES (?, ?, ?, ?, ?)"
+	_, err := config.DB.Exec(query, data["name"], data["category"], data["price"], data["stock"], data["description"])
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to add product"})
 	}
 
-	return c.JSON(product)
+	return c.JSON(fiber.Map{"message": "Product added successfully"})
 }
+
 
 
 
 // PUT /products/:id - Update product (Admin only)
+
+
+// Update an existing product by ID
 func UpdateProduct(c *fiber.Ctx) error {
 	id, err := strconv.Atoi(c.Params("id"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
 	}
 
-	var product models.Products
-	if err := config.DB.First(&product, id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found"})
-	}
-
-	if err := c.BodyParser(&product); err != nil {
+	var productData map[string]interface{}
+	if err := c.BodyParser(&productData); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	if err := config.DB.Save(&product).Error; err != nil {
+	// Update product
+	_, err = config.DB.Exec("UPDATE Products SET name = ?, category = ?, price = ? WHERE id = ?",
+		productData["name"], productData["category"], productData["price"], id)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update product"})
 	}
 
-	return c.JSON(product)
+	return c.JSON(fiber.Map{"message": "Product updated successfully"})
 }
 
-
-/* Cart management 
-
-// POST /cart/add - Add items to the cart
+// Add items to the cart
 func AddToCart(c *fiber.Ctx) error {
-	var cartItem models.CartItem
-
-	// Parse the request body to get product ID and quantity
+	var cartItem map[string]interface{}
 	if err := c.BodyParser(&cartItem); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	// Add the item to the user's cart in the database
-	if err := config.DB.Create(&cartItem).Error; err != nil {
+	var existingQuantity int
+	err := config.DB.QueryRow("SELECT quantity FROM CartItem WHERE user_id = ? AND product_id = ?", cartItem["user_id"], cartItem["product_id"]).Scan(&existingQuantity)
+
+	if err == sql.ErrNoRows {
+		// Insert new item if it doesn't exist
+		_, err = config.DB.Exec("INSERT INTO CartItem (user_id, product_id, quantity) VALUES (?, ?, ?)",
+			cartItem["user_id"], cartItem["product_id"], cartItem["quantity"])
+	} else if err == nil {
+		// Update quantity if item exists
+		_, err = config.DB.Exec("UPDATE CartItem SET quantity = ? WHERE user_id = ? AND product_id = ?",
+			existingQuantity+int(cartItem["quantity"].(float64)), cartItem["user_id"], cartItem["product_id"])
+	}
+
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to add item to cart"})
-	}
-
-	return c.JSON(cartItem)
-}
-
-// GET /cart - Get current cart items
-func GetCart(c *fiber.Ctx) error {
-	var cart []models.CartItem
-
-	// Retrieve the cart items from the database
-	if err := config.DB.Find(&cart).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve cart items"})
-	}
-
-	return c.JSON(cart)
-}
-
-// DELETE /cart/:productId - Remove product from the cart
-func RemoveFromCart(c *fiber.Ctx) error {
-	productId, err := strconv.Atoi(c.Params("productId"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
-	}
-
-	// Delete the item from the cart in the database
-	if err := config.DB.Where("product_id = ?", productId).Delete(&models.CartItem{}).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to remove item from cart"})
-	}
-
-	return c.JSON(fiber.Map{"message": "Item removed from cart"})
-}
-
-/* Order management 
-
-// POST /orders/checkout - Place an order
-func Checkout(c *fiber.Ctx) error {
-	var order models.Order
-
-	// Parse the request body to get order details
-	if err := c.BodyParser(&order); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
-	}
-
-	// Save the order to the database
-	if err := config.DB.Create(&order).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to place order"})
-	}
-
-	// Clear the cart
-	config.DB.Where("user_id = ?", order.UserID).Delete(&models.CartItem{})
-
-	return c.JSON(order)
-}
-
-
-// GET /orders/:orderId - Get order details
-func GetOrderDetails(c *fiber.Ctx) error {
-	orderId, err := strconv.Atoi(c.Params("orderId"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
-	}
-
-	var order models.Order
-
-	// Preload "Items" and their associated "Product"
-	if err := config.DB.Preload("Items.Product").First(&order, orderId).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Order not found"})
-	}
-
-	return c.JSON(order)
-}
-
-
-
-
-// POST /payments/initiate - Initiate payment
-func InitiatePayment(c *fiber.Ctx) error {
-	var paymentRequest models.PaymentRequest
-
-	// Parse the payment details
-	if err := c.BodyParser(&paymentRequest); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
-	}
-
-	// Call the payment gateway API (e.g., Stripe, PayPal)
-	// Handle the payment logic here
-
-	// Update order status in the database
-	config.DB.Model(&models.Order{}).Where("id = ?", paymentRequest.OrderID).Update("status", "Paid")
-
-	return c.JSON(fiber.Map{"message": "Payment initiated successfully"})
-}
-
-
-Delivery management 
-
-// GET /orders/:orderId/track - Track order delivery status
-func TrackOrder(c *fiber.Ctx) error {
-	orderId, err := strconv.Atoi(c.Params("orderId"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
-	}
-
-	var order models.Order
-
-	// Retrieve the order delivery status
-	if err := config.DB.First(&order, orderId).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Order not found"})
-	}
-
-	return c.JSON(fiber.Map{"status": order.DeliveryStatus})
-}
-
-// POST /orders/:orderId/assign - Assign delivery partner
-// POST /orders/:orderId/assign - Assign delivery partner
-func AssignDeliveryPartner(c *fiber.Ctx) error {
-	orderId, err := strconv.Atoi(c.Params("orderId"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
-	}
-
-	var assignment models.DeliveryAssignment
-	if err := c.BodyParser(&assignment); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
-	}
-
-	// Assign the delivery partner
-	if err := config.DB.Model(&models.Order{}).Where("id = ?", orderId).Update("delivery_partner_id", assignment.PartnerID).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to assign delivery partner"})
-	}
-
-	return c.JSON(fiber.Map{"message": "Delivery partner assigned successfully"})
-}
-
-
-// POST /delivery/update-status - Update delivery status
-// POST /delivery/update-status - Update delivery status
-func UpdateDeliveryStatus(c *fiber.Ctx) error {
-	var statusUpdate models.DeliveryStatusUpdate
-
-	if err := c.BodyParser(&statusUpdate); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
-	}
-
-	// Update the delivery status
-	if err := config.DB.Model(&models.Order{}).Where("id = ?", statusUpdate.ID).Update("delivery_status", statusUpdate.Status).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update delivery status"})
-	}
-
-	return c.JSON(fiber.Map{"message": "Delivery status updated successfully"})
-}
-
- */
-
-
-// POST /cart/add - Add items to cart
-func AddToCart(c *fiber.Ctx) error {
-	var cartItem models.CartItem
-
-	if err := c.BodyParser(&cartItem); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
-	}
-
-	var existingCartItem models.CartItem
-	if err := config.DB.Where("user_id = ? AND product_id = ?", cartItem.UserID, cartItem.ProductID).First(&existingCartItem).Error; err == nil {
-		existingCartItem.Quantity += cartItem.Quantity
-		config.DB.Save(&existingCartItem)
-	} else {
-		config.DB.Create(&cartItem)
 	}
 
 	return c.JSON(fiber.Map{"message": "Item added to cart successfully"})
 }
-// GET /cart - Fetch cart contents
+
+// Fetch cart contents
 func GetCart(c *fiber.Ctx) error {
-	userId, err := strconv.Atoi(c.Query("user_id"))
+	userId, err := strconv.Atoi(c.Params("userId"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid user ID"})
 	}
 
-	var cartItems []models.CartItem
-	if err := config.DB.Preload("Product").Where("user_id = ?", userId).Find(&cartItems).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Cart is empty"})
+	rows, err := config.DB.Query("SELECT ci.id, ci.user_id, ci.product_id, ci.quantity, p.name, p.price FROM CartItem ci JOIN Products p ON ci.product_id = p.id WHERE ci.user_id = ?", userId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve cart contents"})
+	}
+	defer rows.Close()
+
+	var cartItems []map[string]interface{}
+	for rows.Next() {
+		var itemId, userId, productId, quantity int
+		var productName string
+		var productPrice float64
+
+		// Scan the values into appropriate variables
+		err := rows.Scan(&itemId, &userId, &productId, &quantity, &productName, &productPrice)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning cart data"})
+		}
+
+		// Assign the scanned values to the map
+		item := map[string]interface{}{
+			"id":       itemId,
+			"user_id":  userId,
+			"product_id": productId,
+			"quantity": quantity,
+			"product": map[string]interface{}{
+				"name":  productName,
+				"price": productPrice,
+			},
+		}
+
+		cartItems = append(cartItems, item)
 	}
 
 	return c.JSON(cartItems)
 }
 
- // DELETE /cart/:productId - Remove a product from the cart
+
+// Remove a product from the cart
 func RemoveFromCart(c *fiber.Ctx) error {
 	userId, err := strconv.Atoi(c.Query("user_id"))
 	if err != nil {
@@ -454,194 +347,321 @@ func RemoveFromCart(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
 	}
 
-	if err := config.DB.Where("user_id = ? AND product_id = ?", userId, productId).Delete(&models.CartItem{}).Error; err != nil {
+	_, err = config.DB.Exec("DELETE FROM CartItem WHERE user_id = ? AND product_id = ?", userId, productId)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to remove product from cart"})
 	}
 
 	return c.JSON(fiber.Map{"message": "Product removed from cart successfully"})
 }
-// POST /orders/checkout - Place an order
-func Checkout(c *fiber.Ctx) error {
-	var order models.Order
 
-	userId, err := strconv.Atoi(c.Query("user_id"))
+// Place an order
+func Checkout(c *fiber.Ctx) error {
+	userId, err := strconv.Atoi(c.Params("userId"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid user ID"})
 	}
 
-	var cartItems []models.CartItem
-	if err := config.DB.Preload("Product").Where("user_id = ?", userId).Find(&cartItems).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Cart is empty"})
+	rows, err := config.DB.Query("SELECT ci.product_id, ci.quantity, p.price FROM CartItem ci JOIN Products p ON ci.product_id = p.id WHERE ci.user_id = ?", userId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve cart contents"})
 	}
+	defer rows.Close()
 
 	var totalAmount float64
-	for _, item := range cartItems {
-		totalAmount += item.Product.Price * float64(item.Quantity)
-	}
+	var cartItems []map[string]interface{}
+	for rows.Next() {
+		var productId, quantity int
+		var price float64
 
-	order.UserID = uint(userId)
-	order.TotalAmount = totalAmount
-	order.Status = "Pending"
-	config.DB.Create(&order)
-
-	for _, item := range cartItems {
-		orderItem := models.OrderItem{
-			OrderID:   order.ID,
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-			Price:     item.Product.Price,
+		// Scan values into variables
+		err := rows.Scan(&productId, &quantity, &price)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning cart data"})
 		}
-		config.DB.Create(&orderItem)
+
+		// Create a map for the item and assign the scanned values
+		item := map[string]interface{}{
+			"product_id": productId,
+			"quantity":   quantity,
+			"price":      price,
+		}
+
+		// Calculate total amount
+		totalAmount += price * float64(quantity)
+		cartItems = append(cartItems, item)
 	}
 
-	config.DB.Where("user_id = ?", userId).Delete(&models.CartItem{})
+	// Insert new order
+	res, err := config.DB.Exec("INSERT INTO Orders (user_id, total_amount, status, delivery_status) VALUES (?, ?, ?, ?)", userId, totalAmount, "Pending", "Not Assigned")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to create order", "error": err.Error()})
+	}
 
-	return c.JSON(order)
+	orderId, err := res.LastInsertId()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve order ID"})
+	}
+
+	// Insert order items
+	for _, item := range cartItems {
+		_, err := config.DB.Exec("INSERT INTO OrderItem (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)",
+			orderId, item["product_id"], item["quantity"], item["price"])
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to add order items"})
+		}
+	}
+
+	// Clear user's cart
+	_, err = config.DB.Exec("DELETE FROM CartItem WHERE user_id = ?", userId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to clear cart"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Order placed successfully", "order_id": orderId})
 }
 
+// Get order details by order ID
 func GetOrderDetails(c *fiber.Ctx) error {
 	orderId, err := strconv.Atoi(c.Params("orderId"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
 	}
 
-	var order models.Order
-
-	if err := config.DB.Preload("Items.Product").First(&order, orderId).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Order not found"})
+	row := config.DB.QueryRow("SELECT id, user_id, total_amount, status FROM Orders WHERE id = ?", orderId)
+	var order struct {
+		ID          int
+		UserID      int
+		TotalAmount float64
+		Status      string
+	}
+	if err := row.Scan(&order.ID, &order.UserID, &order.TotalAmount, &order.Status); err != nil {
+		if err == sql.ErrNoRows {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Order not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
 	}
 
-	return c.JSON(order)
+	rows, err := config.DB.Query("SELECT product_id, quantity, price FROM OrderItem WHERE order_id = ?", orderId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve order items"})
+	}
+	defer rows.Close()
+
+	var items []map[string]interface{}
+	for rows.Next() {
+		var productId, quantity int
+		var price float64
+
+		// Scan values into variables
+		err := rows.Scan(&productId, &quantity, &price)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning order items"})
+		}
+
+		// Create a map for the item and assign the scanned values
+		item := map[string]interface{}{
+			"product_id": productId,
+			"quantity":   quantity,
+			"price":      price,
+		}
+
+		items = append(items, item)
+	}
+
+	return c.JSON(fiber.Map{"order": order, "items": items})
 }
 
 
-
-
-// POST /payments/initiate - Initiate payment
+// Initiate payment for an order
 func InitiatePayment(c *fiber.Ctx) error {
-	var paymentRequest models.PaymentRequest
-
+	var paymentRequest map[string]int
 	if err := c.BodyParser(&paymentRequest); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	config.DB.Model(&models.Order{}).Where("id = ?", paymentRequest.OrderID).Update("status", "Paid")
+	_, err := config.DB.Exec("UPDATE Orders SET status = 'Paid' WHERE id = ?", paymentRequest["order_id"])
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update order status"})
+	}
 
 	return c.JSON(fiber.Map{"message": "Payment initiated successfully"})
 }
 
 
 
+
 // GET /orders/:orderId/track - Track order delivery status
+
+
 func TrackOrder(c *fiber.Ctx) error {
 	orderId, err := strconv.Atoi(c.Params("orderId"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
 	}
 
-	var order models.Order
-
-	if err := config.DB.First(&order, orderId).Error; err != nil {
+	var deliveryStatus string
+	err = config.DB.QueryRow("SELECT delivery_status FROM Orders WHERE id = ?", orderId).Scan(&deliveryStatus)
+	if err == sql.ErrNoRows {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Order not found"})
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
 	}
 
-	return c.JSON(fiber.Map{"status": order.DeliveryStatus})
+	return c.JSON(fiber.Map{"status": deliveryStatus})
 }
-// POST /orders/:orderId/assign - Assign delivery partner
+
+// Assign delivery partner
 func AssignDeliveryPartner(c *fiber.Ctx) error {
 	orderId, err := strconv.Atoi(c.Params("orderId"))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
 	}
 
-	var assignment models.DeliveryAssignment
+	var assignment struct {
+		PartnerID int `json:"partner_id"`
+	}
 	if err := c.BodyParser(&assignment); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	if err := config.DB.Model(&models.Order{}).Where("id = ?", orderId).Update("delivery_partner_id", assignment.PartnerID).Error; err != nil {
+	_, err = config.DB.Exec("UPDATE Orders SET delivery_partner_id = ? WHERE id = ?", assignment.PartnerID, orderId)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to assign delivery partner"})
 	}
 
 	return c.JSON(fiber.Map{"message": "Delivery partner assigned successfully"})
 }
-// POST /delivery/update-status - Update delivery status
+
+// Update delivery status
 func UpdateDeliveryStatus(c *fiber.Ctx) error {
-	var statusUpdate models.DeliveryStatusUpdate
+	var statusUpdate struct {
+		ID     int    `json:"id"`
+		Status string `json:"status"`
+	}
 
 	if err := c.BodyParser(&statusUpdate); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Cannot parse JSON"})
 	}
 
-	if err := config.DB.Model(&models.Order{}).Where("id = ?", statusUpdate.ID).Update("delivery_status", statusUpdate.Status).Error; err != nil {
+	_, err := config.DB.Exec("UPDATE Orders SET delivery_status = ? WHERE id = ?", statusUpdate.Status, statusUpdate.ID)
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update delivery status"})
 	}
 
 	return c.JSON(fiber.Map{"message": "Delivery status updated successfully"})
 }
 
+// Admin Dashboard
 func AdminDashboard(c *fiber.Ctx) error {
-    var totalOrders int64
-    var activeUsers int64
-    var topProducts []models.Products
-    var avgDeliveryTime float64
+	var totalOrders int64
+	var activeUsers int64
+	/* var avgDeliveryTime float64 */
 
-    config.DB.Model(&models.Order{}).Count(&totalOrders)
+	// Total orders
+	err := config.DB.QueryRow("SELECT COUNT(*) FROM orders").Scan(&totalOrders)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving total orders"})
+	}
 
-    config.DB.Model(&models.Login{}).Where("is_admin = ?", false).Count(&activeUsers)
+	// Active users (non-admins)
+	err = config.DB.QueryRow("SELECT COUNT(*) FROM Login WHERE is_admin = 0").Scan(&activeUsers)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving active users"})
+	}
 
-    config.DB.Model(&models.OrderItem{}).
-        Select("product_id, sum(quantity) as total_sold").
-        Joins("JOIN products on products.id = order_items.product_id").
-        Group("product_id").
-        Order("total_sold desc").
-        Limit(5).
-        Scan(&topProducts)
+	// Top-selling products
+	var topProducts []struct {
+		ProductID int
+		TotalSold int
+	}
+	rows, err := config.DB.Query(`
+		SELECT product_id, SUM(quantity) AS total_sold
+		FROM OrderItem
+		JOIN Products ON Products.id = OrderItem.product_id
+		GROUP BY product_id
+		ORDER BY total_sold DESC
+		LIMIT 5
+	`)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving top-selling products"})
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var product struct {
+			ProductID int
+			TotalSold int
+		}
+		if err := rows.Scan(&product.ProductID, &product.TotalSold); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning product data"})
+		}
+		topProducts = append(topProducts, product)
+	}
 
-    config.DB.Model(&models.Order{}).
-        Where("status = ?", "Delivered").
-        Select("avg(timestampdiff(MINUTE, created_at, updated_at)) as avg_delivery_time").
-        Row().Scan(&avgDeliveryTime)
+	// Average delivery time
+	/* err = config.DB.QueryRow(`
+    SELECT AVG((julianday(updated_at) - julianday(created_at)) * 24 * 60)
+    FROM Orders WHERE status = 'Delivered'
+`).Scan(&avgDeliveryTime)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error calculating average delivery time"})
+	} */
 
-    return c.JSON(fiber.Map{
-        "total_orders":      totalOrders,
-        "active_users":      activeUsers,
-        "top_selling":       topProducts,
-        "average_delivery":  avgDeliveryTime,
-    })
+	return c.JSON(fiber.Map{
+		"total_orders":     totalOrders,
+		"active_users":     activeUsers,
+		"top_selling":      topProducts,
+		
+	})
 }
 
+// Get All Orders
 func GetAllOrders(c *fiber.Ctx) error {
-    var orders []models.Order
-    status := c.Query("status") 
+	var orders []map[string]interface{}
+	status := c.Query("status")
 
-    query := config.DB.Preload("Items.Product").Preload("DeliveryPartner")
+	query := "SELECT id, status, delivery_partner_id FROM Orders"
+	if status != "" {
+		query += " WHERE status = ?"
+	}
 
-    if status != "" {
-        query = query.Where("status = ?", status)
-    }
+	rows, err := config.DB.Query(query, status)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve orders"})
+	}
+	defer rows.Close()
 
-    if err := query.Find(&orders).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Orders not found"})
-    }
+	for rows.Next() {
+		var order struct {
+			ID               int
+			Status           string
+			DeliveryPartnerID int
+		}
+		if err := rows.Scan(&order.ID, &order.Status, &order.DeliveryPartnerID); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning order data"})
+		}
+		orders = append(orders, map[string]interface{}{
+			"id":               order.ID,
+			"status":           order.Status,
+			"delivery_partner": order.DeliveryPartnerID,
+		})
+	}
 
-    return c.JSON(orders)
+	return c.JSON(orders)
 }
 
+// Cancel Order
 func CancelOrder(c *fiber.Ctx) error {
-    orderId, err := strconv.Atoi(c.Params("orderId"))
-    if err != nil {
-        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
-    }
+	orderId, err := strconv.Atoi(c.Params("orderId"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid order ID"})
+	}
 
-    var order models.Order
-    if err := config.DB.First(&order, orderId).Error; err != nil {
-        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Order not found"})
-    }
+	// Update order status to "Canceled"
+	_, err = config.DB.Exec("UPDATE Orders SET status = 'Canceled' WHERE id = ?", orderId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to cancel order"})
+	}
 
-    if err := config.DB.Model(&order).Update("status", "Canceled").Error; err != nil {
-        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to cancel order"})
-    }
-
-    return c.JSON(fiber.Map{"message": "Order canceled successfully"})
+	return c.JSON(fiber.Map{"message": "Order canceled successfully"})
 }

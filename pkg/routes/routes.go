@@ -25,11 +25,11 @@ func Setup(app *fiber.App) {
 
 	// Cart Routes
 	app.Post("/cart/add", controllers.AddToCart)               
-	app.Get("/cart", controllers.GetCart)                      
+	app.Get("/cart/:userId", controllers.GetCart)                      
 	app.Delete("/cart/:productId", controllers.RemoveFromCart) 
 
 	// Order Routes
-	app.Post("/orders/checkout", controllers.Checkout)       
+	app.Post("/orders/checkout/:userId", controllers.Checkout)       
 	app.Get("/orders/:orderId", controllers.GetOrderDetails) 
 	app.Post("/payment/initiate", controllers.InitiatePayment) 
 	
