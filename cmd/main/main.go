@@ -3,7 +3,7 @@ package main
 import (
 	/* "log"
 	"net/http" */
-	"log"
+
 
 	"github.com/gofiber/fiber/v2"
 	/* "github.com/rs/cors" */
@@ -13,14 +13,13 @@ import (
 	"github.com/kavikkannan/go-ecommerce-grocery-delivery-service/pkg/routes"
 	
 
-	"database/sql"
 
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
-	InitDB()
+
     config.Connect()
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
@@ -34,19 +33,7 @@ func main() {
 }
 
 
-var db *sql.DB
 
-func InitDB() {
-	
-
-
-    var err error
-    db, err = sql.Open("sqlite3", "./example.db")
-    if err != nil {
-        log.Fatal("failed to connect to database:", err)
-    }
-	defer db.Close()
-}
 
 /* // Open the database
 database, err := sql.Open("sqlite3", "./example.db")
