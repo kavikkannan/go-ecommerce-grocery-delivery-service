@@ -29,7 +29,8 @@ func Setup(app *fiber.App) {
 	app.Delete("/cart/:productId", controllers.RemoveFromCart) 
 
 	// Order Routes
-	app.Post("/orders/checkout/:userId", controllers.Checkout)       
+	app.Post("/orders/checkout/:userId", controllers.Checkout)    
+	app.Get("/ordersIds/:userId", controllers.GetOrderIdsByUserID)   
 	app.Get("/orders/:orderId", controllers.GetOrderDetails) 
 	app.Post("/payment/initiate", controllers.InitiatePayment) 
 	

@@ -31,14 +31,6 @@ func Connect() {
 // createTables runs SQL statements to create each table if it doesn't exist
 func createTables(db *sql.DB) error {
 	tableStatements := []string{
-		`CREATE TABLE IF NOT EXISTS Login (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			email TEXT NOT NULL UNIQUE,
-			password BLOB NOT NULL,
-			is_admin BOOLEAN NOT NULL DEFAULT 0
-		);`,
-
 		`CREATE TABLE IF NOT EXISTS Products (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
@@ -47,6 +39,23 @@ func createTables(db *sql.DB) error {
 			stock INTEGER NOT NULL,
 			description TEXT
 		);`,
+
+
+
+
+
+
+
+		
+		`CREATE TABLE IF NOT EXISTS Login (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			email TEXT NOT NULL UNIQUE,
+			password BLOB NOT NULL,
+			is_admin BOOLEAN NOT NULL DEFAULT 0
+		);`,
+
+		
 
 		`CREATE TABLE IF NOT EXISTS CartItem (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

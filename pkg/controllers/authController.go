@@ -88,30 +88,40 @@ func Login(c *fiber.Ctx) error {
 
 // Get User details based on JWT
 func User(c *fiber.Ctx) error {
-	cookie := c.Cookies("jwt")
+    cookie := c.Cookies("jwt")
 
-	token, err := jwt.ParseWithClaims(cookie, &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(SecretKey), nil
-	})
-	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthenticated"})
-	}
-	claims := token.Claims.(*jwt.StandardClaims)
+    token, err := jwt.ParseWithClaims(cookie, jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
+        return []byte(SecretKey), nil
+    })
+    if err != nil {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthenticated"})
+    }
 
-	var Login struct {
-		ID       int
-		Name     string
-		Email    string
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok || claims["Issuer"] == nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid claims in token"})
+    }
+
+    userId, err := strconv.Atoi(claims["Issuer"].(string))
+    if err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid user ID in token"})
+    }
+
+    var user struct {
+        ID    int
+        Name  string
+        Email string
 		IsAdmin  bool
-	}
-	err = config.DB.QueryRow("SELECT id, name, email, is_admin FROM Login WHERE id = ?", claims.Issuer).Scan(&Login.ID, &Login.Name, &Login.Email, &Login.IsAdmin)
-	if err == sql.ErrNoRows {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
-	} else if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
-	}
+    }
 
-	return c.JSON(Login)
+    err = config.DB.QueryRow("SELECT id, name, email, is_admin FROM Login WHERE id = ?", userId).Scan(&user.ID, &user.Name, &user.Email, &user.IsAdmin)
+    if err == sql.ErrNoRows {
+        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
+    } else if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
+    }
+
+    return c.JSON(user)
 }
 
 // Logout by clearing JWT cookie
@@ -419,6 +429,40 @@ func Checkout(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "Order placed successfully", "order_id": orderId})
+}
+func GetOrderIdsByUserID(c *fiber.Ctx) error {
+	// Get user ID from route parameters
+	userId, err := strconv.Atoi(c.Params("userId"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid user ID"})
+	}
+
+	// Query the Orders table for the given user ID
+	rows, err := config.DB.Query("SELECT id FROM Orders WHERE user_id = ?", userId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve orders"})
+	}
+	defer rows.Close()
+
+	// Initialize a slice to store the order IDs
+	var orderIds []int
+
+	// Loop through the rows and append each order ID to the slice
+	for rows.Next() {
+		var orderId int
+		if err := rows.Scan(&orderId); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning order ID"})
+		}
+		orderIds = append(orderIds, orderId)
+	}
+
+	// Check for any errors that occurred during the row iteration
+	if err := rows.Err(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving order IDs"})
+	}
+
+	// Return the list of order IDs as a JSON response
+	return c.JSON(fiber.Map{"order_ids": orderIds})
 }
 
 // Get order details by order ID
