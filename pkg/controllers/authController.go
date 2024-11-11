@@ -124,6 +124,27 @@ func User(c *fiber.Ctx) error {
     return c.JSON(user)
 }
 
+func GetUserByID(c *fiber.Ctx) error {
+	userID := c.Params("userId")
+	var user struct {
+		ID    int
+		Name  string
+		Email string
+		IsAdmin bool
+	}
+
+	err := config.DB.QueryRow("SELECT id, name, email, is_admin FROM Login WHERE id = ?", userID).
+		Scan(&user.ID, &user.Name, &user.Email, &user.IsAdmin)
+	if err == sql.ErrNoRows {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User not found"})
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Database error"})
+	}
+
+	return c.JSON(user)
+}
+
+
 // Logout by clearing JWT cookie
 func Logout(c *fiber.Ctx) error {
 	cookie := fiber.Cookie{
@@ -247,6 +268,30 @@ func AddProduct(c *fiber.Ctx) error {
 }
 
 
+// DeleteProduct removes a product by ID
+func DeleteProduct(c *fiber.Ctx) error {
+	productId, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid product ID"})
+	}
+
+	// Delete the product from the database
+	result, err := config.DB.Exec("DELETE FROM Products WHERE id = ?", productId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to delete product"})
+	}
+
+	// Check if a row was actually deleted
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to check delete operation"})
+	}
+	if rowsAffected == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Product not found"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Product deleted successfully"})
+}
 
 
 // PUT /products/:id - Update product (Admin only)
@@ -439,6 +484,35 @@ func GetOrderIdsByUserID(c *fiber.Ctx) error {
 
 	// Query the Orders table for the given user ID
 	rows, err := config.DB.Query("SELECT id FROM Orders WHERE user_id = ?", userId)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve orders"})
+	}
+	defer rows.Close()
+
+	// Initialize a slice to store the order IDs
+	var orderIds []int
+
+	// Loop through the rows and append each order ID to the slice
+	for rows.Next() {
+		var orderId int
+		if err := rows.Scan(&orderId); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error scanning order ID"})
+		}
+		orderIds = append(orderIds, orderId)
+	}
+
+	// Check for any errors that occurred during the row iteration
+	if err := rows.Err(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving order IDs"})
+	}
+
+	// Return the list of order IDs as a JSON response
+	return c.JSON(fiber.Map{"order_ids": orderIds})
+}
+
+func GetAllOrderIds(c *fiber.Ctx) error {
+	// Query the Orders table to retrieve all order IDs
+	rows, err := config.DB.Query("SELECT id FROM Orders")
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to retrieve orders"})
 	}
